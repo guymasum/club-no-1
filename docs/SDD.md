@@ -138,22 +138,26 @@ CREATE TABLE bills (
 ## 6. Bill Format
 
 ```
-=============================
-       CLUB NO. 1
-=============================
+==================================
+           CLUB NO. 1
+==================================
 Date:           2026-08-27
 Transaction ID: TXN-20260827-0042
 Waiter:         Josee
 Customer:       Jean-Pierre
------------------------------
-2x Brochettes de langues   $X.XX
-1x Beer                    $X.XX
------------------------------
-TOTAL:                     $X.XX
-=============================
+----------------------------------
+2x Brochettes de langues   16 000 FBu
+1x Beer                     3 000 FBu
+----------------------------------
+TOTAL:                     19 000 FBu
+==================================
      Merci et a bientot!
-=============================
+==================================
 ```
+
+Currency: Burundian Franc (BIF), displayed as "FBu" per local convention.
+BIF has no minor unit in everyday use, so amounts are whole numbers with
+a space thousands-separator (no decimals).
 
 ---
 

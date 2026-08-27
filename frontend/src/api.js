@@ -42,6 +42,8 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
 export const api = {
   login: (username, password) =>
     request("/auth/login", { method: "POST", body: { username, password }, auth: false }),
+  changePassword: (current_password, new_password) =>
+    request("/auth/password", { method: "PUT", body: { current_password, new_password } }),
   customers: () => request("/customers"),
   products: () => request("/products"),
   openOrders: () => request("/orders"),
@@ -63,6 +65,13 @@ export const api = {
   createProduct: (data) => request("/admin/products", { method: "POST", body: data }),
   updateProduct: (id, data) => request(`/admin/products/${id}`, { method: "PUT", body: data }),
   createCustomer: (data) => request("/admin/customers", { method: "POST", body: data }),
+  updateCustomer: (id, data) => request(`/admin/customers/${id}`, { method: "PUT", body: data }),
+  deleteCustomer: (id) => request(`/admin/customers/${id}`, { method: "DELETE" }),
+  stockItems: () => request("/admin/stock-items"),
+  createStockItem: (data) => request("/admin/stock-items", { method: "POST", body: data }),
+  updateStockItem: (id, data) => request(`/admin/stock-items/${id}`, { method: "PUT", body: data }),
+  restockItem: (id, delta) =>
+    request(`/admin/stock-items/${id}/restock`, { method: "POST", body: { delta } }),
 };
 
 export { ApiError, getToken };

@@ -1,6 +1,7 @@
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -16,6 +17,13 @@ TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 async def db_session():
     engine = create_async_engine(TEST_DB_URL, connect_args={"check_same_thread": False}, poolclass=StaticPool)
     session_maker = async_sessionmaker(engine, expire_on_commit=False)
+
+    # SQLite ignores foreign keys (including ON DELETE actions) unless told
+    # otherwise, so the customer-delete -> orders.customer_id=NULL behavior
+    # would silently no-op in tests without this.
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_sqlite_fk(dbapi_conn, _):
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

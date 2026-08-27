@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.deps import get_current_waiter
-from app.models import Customer, Order, OrderItem, Product, Waiter
+from app.models import Customer, Order, OrderItem, Product, StockItem, Waiter
 from app.schemas import OrderCreate, OrderItemCreate, OrderItemOut, OrderOut
 
 router = APIRouter(prefix="/orders", tags=["orders"], dependencies=[Depends(get_current_waiter)])
@@ -50,7 +50,7 @@ async def _get_open_order(order_id: int, db: AsyncSession) -> Order:
     )
     order = result.scalar_one_or_none()
     if order is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Commande introuvable")
     return order
 
 
@@ -84,7 +84,7 @@ async def create_order(
     if body.customer_id is not None:
         customer = await db.get(Customer, body.customer_id)
         if customer is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Customer not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Client introuvable")
 
     order = Order(waiter_id=waiter.waiter_id, customer_id=body.customer_id, status="open")
     db.add(order)
@@ -96,13 +96,28 @@ async def create_order(
 async def add_item(order_id: int, body: OrderItemCreate, db: AsyncSession = Depends(get_db)) -> OrderOut:
     order = await _get_open_order(order_id, db)
     if order.status != "open":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Order is already billed")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "La commande a déjà été facturée")
     if body.quantity < 1:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Quantity must be at least 1")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "La quantité doit être d'au moins 1")
 
     product = await db.get(Product, body.product_id)
     if product is None or not product.active:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found or inactive")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Produit introuvable ou inactif")
+
+    if product.stock_item_id is not None:
+        # Stock is deducted here, at pour time, not at bill finalization —
+        # the drink is physically poured/opened as soon as it's added to the
+        # order. with_for_update() locks the row for the rest of this
+        # transaction so two waiters can't both oversell the last unit
+        # (SQLite ignores this silently; only matters under real concurrency).
+        stock_result = await db.execute(
+            select(StockItem).where(StockItem.stock_item_id == product.stock_item_id).with_for_update()
+        )
+        stock_item = stock_result.scalar_one()
+        portions_needed = product.portions_per_sale * body.quantity
+        if stock_item.quantity_on_hand < portions_needed:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Stock insuffisant pour {product.name}")
+        stock_item.quantity_on_hand -= portions_needed
 
     db.add(
         OrderItem(
@@ -120,11 +135,17 @@ async def add_item(order_id: int, body: OrderItemCreate, db: AsyncSession = Depe
 async def remove_item(order_id: int, item_id: int, db: AsyncSession = Depends(get_db)) -> OrderOut:
     order = await _get_open_order(order_id, db)
     if order.status != "open":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Order is already billed")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "La commande a déjà été facturée")
 
     item = next((i for i in order.items if i.item_id == item_id), None)
     if item is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found on this order")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Article introuvable dans cette commande")
+
+    if item.product.stock_item_id is not None:
+        # Removing an item means it wasn't actually served after all —
+        # give the portions back to the shared stock pool.
+        stock_item = await db.get(StockItem, item.product.stock_item_id)
+        stock_item.quantity_on_hand += item.product.portions_per_sale * item.quantity
 
     await db.delete(item)
     await db.commit()

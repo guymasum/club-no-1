@@ -11,7 +11,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 CREDENTIALS_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate credentials",
+    detail="Impossible de valider les identifiants",
     headers={"WWW-Authenticate": "Bearer"},
 )
 
@@ -30,7 +30,9 @@ async def get_current_waiter(
         raise CREDENTIALS_EXCEPTION
 
     waiter = await db.get(Waiter, int(waiter_id))
-    if waiter is None:
+    if waiter is None or not waiter.active:
+        # An inactive (removed) waiter loses access immediately, even with a
+        # still-unexpired token, rather than waiting out the 8h JWT expiry.
         raise CREDENTIALS_EXCEPTION
     return waiter
 
@@ -39,6 +41,6 @@ async def require_admin(waiter: Waiter = Depends(get_current_waiter)) -> Waiter:
     if waiter.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required",
+            detail="Rôle administrateur requis",
         )
     return waiter

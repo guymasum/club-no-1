@@ -4,6 +4,7 @@ import Login from "./pages/Login.jsx";
 import WaiterDashboard from "./pages/WaiterDashboard.jsx";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 import BillView from "./pages/BillView.jsx";
+import MyAccount from "./pages/MyAccount.jsx";
 
 function RequireAuth({ children, adminOnly = false }) {
   const { user } = useAuth();
@@ -37,6 +38,14 @@ export default function App() {
         element={
           <RequireAuth>
             <BillView />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/mon-compte"
+        element={
+          <RequireAuth>
+            <MyAccount />
           </RequireAuth>
         }
       />

@@ -19,6 +19,12 @@ router = APIRouter(tags=["bills"], dependencies=[Depends(get_current_waiter)])
 RECEIPT_WIDTH = 80 * mm
 
 
+def format_bif(amount: float) -> str:
+    """BIF has no minor unit in everyday use, so amounts are whole numbers
+    with a space thousands-separator, e.g. 15000 -> '15 000 FBu'."""
+    return f"{amount:,.0f}".replace(",", " ") + " FBu"
+
+
 async def _load_order_for_bill(order_id: int, db: AsyncSession) -> Order:
     result = await db.execute(
         select(Order)
@@ -32,7 +38,7 @@ async def _load_order_for_bill(order_id: int, db: AsyncSession) -> Order:
     )
     order = result.scalar_one_or_none()
     if order is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Commande introuvable")
     return order
 
 
@@ -63,9 +69,9 @@ async def finalize_order(order_id: int, db: AsyncSession = Depends(get_db)) -> B
     order = await _load_order_for_bill(order_id, db)
 
     if order.status == "billed":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Order already billed")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Commande déjà facturée")
     if not order.items:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot bill an order with no items")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Impossible de facturer une commande sans articles")
 
     total = sum(item.quantity * float(item.unit_price) for item in order.items)
     transaction_id = f"TXN-{datetime.now(UTC):%Y%m%d}-{order.order_id:04d}"
@@ -83,7 +89,7 @@ async def finalize_order(order_id: int, db: AsyncSession = Depends(get_db)) -> B
 async def get_bill(bill_id: int, db: AsyncSession = Depends(get_db)) -> BillOut:
     bill = await db.get(Bill, bill_id)
     if bill is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bill not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Facture introuvable")
     order = await _load_order_for_bill(bill.order_id, db)
     return _bill_to_out(bill, order)
 
@@ -92,7 +98,7 @@ async def get_bill(bill_id: int, db: AsyncSession = Depends(get_db)) -> BillOut:
 async def get_bill_pdf(bill_id: int, db: AsyncSession = Depends(get_db)) -> StreamingResponse:
     bill = await db.get(Bill, bill_id)
     if bill is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bill not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Facture introuvable")
     order = await _load_order_for_bill(bill.order_id, db)
 
     buffer = io.BytesIO()
@@ -110,23 +116,24 @@ async def get_bill_pdf(bill_id: int, db: AsyncSession = Depends(get_db)) -> Stre
             pdf.drawString(4 * mm, y, text)
         y -= line
 
-    write("=" * 29, center=True)
+    width = 34
+    write("=" * width, center=True)
     write("CLUB NO. 1", size=12, center=True)
-    write("=" * 29, center=True)
-    write(f"Date:           {bill.generated_at:%Y-%m-%d}")
-    write(f"Transaction ID: {bill.transaction_id}")
-    write(f"Waiter:         {order.waiter.name}")
-    write(f"Customer:       {order.customer.name if order.customer else '-'}")
-    write("-" * 29)
+    write("=" * width, center=True)
+    write(f"{'Date :':<20}{bill.generated_at:%Y-%m-%d}")
+    write(f"{'N° de transaction :':<20}{bill.transaction_id}")
+    write(f"{'Serveur :':<20}{order.waiter.name}")
+    write(f"{'Client :':<20}{order.customer.name if order.customer else '-'}")
+    write("-" * width)
     for item in order.items:
         label = f"{item.quantity}x {item.product.name}"
-        amount = f"${item.quantity * float(item.unit_price):.2f}"
-        write(f"{label:<20}{amount:>9}")
-    write("-" * 29)
-    write(f"{'TOTAL:':<20}{'$' + format(float(bill.total), '.2f'):>9}")
-    write("=" * 29, center=True)
-    write("Merci et a bientot!", center=True)
-    write("=" * 29, center=True)
+        amount = format_bif(item.quantity * float(item.unit_price))
+        write(f"{label:<20}{amount:>14}")
+    write("-" * width)
+    write(f"{'TOTAL :':<20}{format_bif(float(bill.total)):>14}")
+    write("=" * width, center=True)
+    write("Merci et à bientôt !", center=True)
+    write("=" * width, center=True)
 
     pdf.save()
     buffer.seek(0)

@@ -16,11 +16,12 @@ export default function TopBar() {
       <nav>
         <span className="muted">{user?.name}</span>
         <NavLink to="/" end>
-          Orders
+          Commandes
         </NavLink>
-        {user?.role === "admin" && <NavLink to="/admin">Admin</NavLink>}
+        {user?.role === "admin" && <NavLink to="/admin">Administration</NavLink>}
+        <NavLink to="/mon-compte">Mon compte</NavLink>
         <button className="linklike" onClick={handleLogout}>
-          Log out
+          Déconnexion
         </button>
       </nav>
     </div>

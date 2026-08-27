@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---- Auth ----
@@ -18,6 +18,11 @@ class LoginResponse(BaseModel):
     role: str
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=4)
+
+
 # ---- Waiters ----
 
 class WaiterOut(BaseModel):
@@ -27,19 +32,21 @@ class WaiterOut(BaseModel):
     name: str
     username: str
     role: str
+    active: bool
 
 
 class WaiterCreate(BaseModel):
     name: str
     username: str
-    password: str
+    password: str = Field(min_length=4)
     role: str = "waiter"
 
 
 class WaiterUpdate(BaseModel):
     name: str | None = None
-    password: str | None = None
+    password: str | None = Field(default=None, min_length=4)
     role: str | None = None
+    active: bool | None = None
 
 
 # ---- Customers ----
@@ -55,6 +62,39 @@ class CustomerCreate(BaseModel):
     name: str
 
 
+class CustomerUpdate(BaseModel):
+    name: str
+
+
+# ---- Stock ----
+
+class StockItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    stock_item_id: int
+    name: str
+    portions_per_container: int
+    quantity_on_hand: int
+    low_stock_threshold: int | None
+
+
+class StockItemCreate(BaseModel):
+    name: str
+    portions_per_container: int = 1
+    quantity_on_hand: int = 0
+    low_stock_threshold: int | None = None
+
+
+class StockItemUpdate(BaseModel):
+    name: str | None = None
+    portions_per_container: int | None = None
+    low_stock_threshold: int | None = None
+
+
+class StockAdjustment(BaseModel):
+    delta: int  # positive for a delivery received, negative for breakage/correction
+
+
 # ---- Products ----
 
 class ProductOut(BaseModel):
@@ -65,12 +105,19 @@ class ProductOut(BaseModel):
     category: str
     price: float
     active: bool
+    stock_item_id: int | None
+    portions_per_sale: int
+    # How many more times this specific product can be sold given current
+    # stock (quantity_on_hand // portions_per_sale). None when untracked.
+    stock_remaining: int | None = None
 
 
 class ProductCreate(BaseModel):
     name: str
     category: str
     price: float
+    stock_item_id: int | None = None
+    portions_per_sale: int = 1
 
 
 class ProductUpdate(BaseModel):
@@ -78,6 +125,11 @@ class ProductUpdate(BaseModel):
     category: str | None = None
     price: float | None = None
     active: bool | None = None
+    stock_item_id: int | None = None
+    portions_per_sale: int | None = None
+    # `stock_item_id: null` is indistinguishable from "field omitted" once
+    # parsed, so unlinking an already-tracked product needs an explicit flag.
+    clear_stock_item: bool = False
 
 
 # ---- Orders ----

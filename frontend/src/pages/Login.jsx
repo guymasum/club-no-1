@@ -18,7 +18,7 @@ export default function Login() {
       await login(username, password);
       navigate("/");
     } catch (err) {
-      setError(err.message || "Login failed");
+      setError(err.message || "Échec de la connexion");
     } finally {
       setLoading(false);
     }
@@ -28,22 +28,22 @@ export default function Login() {
     <div className="login-wrap">
       <form className="card login-card" onSubmit={handleSubmit}>
         <h1>Club No. 1</h1>
-        <p>Sign in to start taking orders</p>
+        <p>Connectez-vous pour commencer à prendre des commandes</p>
         <input
-          placeholder="Username"
+          placeholder="Nom d'utilisateur"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           autoFocus
         />
         <input
-          placeholder="Password"
+          placeholder="Mot de passe"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
         <p className="error">{error}</p>
         <button type="submit" disabled={loading} style={{ width: "100%" }}>
-          {loading ? "Signing in…" : "Sign in"}
+          {loading ? "Connexion…" : "Se connecter"}
         </button>
       </form>
     </div>
