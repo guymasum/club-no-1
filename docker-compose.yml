@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: clubno1
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    # No host port mapping: `web` reaches `db` over the internal compose
+    # network. Windows' Hyper-V/WSL dynamic port-exclusion range shifts on
+    # every reboot and tends to eat whatever host port you pick for 5432
+    # (`netsh interface ipv4 show excludedportrange protocol=tcp` shows the
+    # current range) — if you need host access for psql/a GUI client, add
+    # back `ports: ["<free-port>:5432"]` with a port outside that range.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  web:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/clubno1
+      SECRET_KEY: change-me-to-a-random-secret
+      ENVIRONMENT: development
+    ports:
+      - "8000:8000"
+
+volumes:
+  db_data:
