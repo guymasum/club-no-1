@@ -17,7 +17,10 @@ app = FastAPI(title="Club No. 1 API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten to the deployed frontend origin before going live
+    allow_origins=[
+        "https://club-no-1-frontend-production.up.railway.app",
+        "http://localhost:3000",  # local Vite dev server
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
