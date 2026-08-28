@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -193,3 +193,57 @@ class BillOut(BaseModel):
     waiter_name: str
     customer_name: str | None
     items: list[OrderItemOut] = []
+
+
+# ---- Suppliers & purchase orders ----
+
+class SupplierOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    supplier_id: int
+    name: str
+    phone: str | None
+    active: bool
+
+
+class SupplierCreate(BaseModel):
+    name: str
+    phone: str | None = None
+
+
+class SupplierUpdate(BaseModel):
+    name: str | None = None
+    phone: str | None = None
+    active: bool | None = None
+
+
+class PurchaseOrderItemIn(BaseModel):
+    stock_item_id: int
+    quantity_received: int = Field(gt=0)
+
+
+class PurchaseOrderItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    stock_item_id: int
+    stock_item_name: str
+    quantity_received: int
+
+
+class PurchaseOrderCreate(BaseModel):
+    supplier_id: int
+    invoice_number: str
+    order_date: date
+    items: list[PurchaseOrderItemIn] = Field(min_length=1)
+
+
+class PurchaseOrderOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    purchase_order_id: int
+    supplier_id: int
+    supplier_name: str
+    invoice_number: str
+    order_date: date
+    created_at: datetime
+    items: list[PurchaseOrderItemOut]

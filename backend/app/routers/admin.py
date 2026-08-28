@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.deps import require_admin
-from app.models import Customer, Product, StockItem, Waiter
+from app.models import Customer, Product, PurchaseOrder, PurchaseOrderItem, StockItem, Supplier, Waiter
 from app.product_utils import to_product_out
 from app.schemas import (
     CustomerCreate,
@@ -14,10 +14,16 @@ from app.schemas import (
     ProductCreate,
     ProductOut,
     ProductUpdate,
+    PurchaseOrderCreate,
+    PurchaseOrderItemOut,
+    PurchaseOrderOut,
     StockAdjustment,
     StockItemCreate,
     StockItemOut,
     StockItemUpdate,
+    SupplierCreate,
+    SupplierOut,
+    SupplierUpdate,
     WaiterCreate,
     WaiterOut,
     WaiterUpdate,
@@ -269,3 +275,134 @@ async def delete_customer(customer_id: int, db: AsyncSession = Depends(get_db)) 
 
     await db.delete(customer)
     await db.commit()
+
+
+# ---- Suppliers ----
+
+@router.get("/suppliers", response_model=list[SupplierOut])
+async def list_suppliers(db: AsyncSession = Depends(get_db)) -> list[Supplier]:
+    result = await db.execute(select(Supplier).order_by(Supplier.name))
+    return list(result.scalars().all())
+
+
+@router.post("/suppliers", response_model=SupplierOut, status_code=status.HTTP_201_CREATED)
+async def create_supplier(body: SupplierCreate, db: AsyncSession = Depends(get_db)) -> Supplier:
+    supplier = Supplier(name=body.name, phone=body.phone)
+    db.add(supplier)
+    await db.commit()
+    await db.refresh(supplier)
+    return supplier
+
+
+@router.put("/suppliers/{supplier_id}", response_model=SupplierOut)
+async def update_supplier(
+    supplier_id: int, body: SupplierUpdate, db: AsyncSession = Depends(get_db)
+) -> Supplier:
+    supplier = await db.get(Supplier, supplier_id)
+    if supplier is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Fournisseur introuvable")
+
+    if body.name is not None:
+        supplier.name = body.name
+    if body.phone is not None:
+        supplier.phone = body.phone
+    if body.active is not None:
+        supplier.active = body.active
+
+    await db.commit()
+    await db.refresh(supplier)
+    return supplier
+
+
+# ---- Purchase orders (supplier deliveries) ----
+
+def _purchase_order_to_out(po: PurchaseOrder) -> PurchaseOrderOut:
+    return PurchaseOrderOut(
+        purchase_order_id=po.purchase_order_id,
+        supplier_id=po.supplier_id,
+        supplier_name=po.supplier.name,
+        invoice_number=po.invoice_number,
+        order_date=po.order_date,
+        created_at=po.created_at,
+        items=[
+            PurchaseOrderItemOut(
+                stock_item_id=item.stock_item_id,
+                stock_item_name=item.stock_item.name,
+                quantity_received=item.quantity_received,
+            )
+            for item in po.items
+        ],
+    )
+
+
+async def _load_purchase_order(purchase_order_id: int, db: AsyncSession) -> PurchaseOrder:
+    result = await db.execute(
+        select(PurchaseOrder)
+        .where(PurchaseOrder.purchase_order_id == purchase_order_id)
+        .options(
+            selectinload(PurchaseOrder.supplier),
+            selectinload(PurchaseOrder.items).selectinload(PurchaseOrderItem.stock_item),
+        )
+    )
+    po = result.scalar_one_or_none()
+    if po is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Commande fournisseur introuvable")
+    return po
+
+
+@router.get("/purchase-orders", response_model=list[PurchaseOrderOut])
+async def list_purchase_orders(
+    supplier_id: int | None = None, db: AsyncSession = Depends(get_db)
+) -> list[PurchaseOrderOut]:
+    stmt = (
+        select(PurchaseOrder)
+        .options(
+            selectinload(PurchaseOrder.supplier),
+            selectinload(PurchaseOrder.items).selectinload(PurchaseOrderItem.stock_item),
+        )
+        .order_by(PurchaseOrder.order_date.desc(), PurchaseOrder.purchase_order_id.desc())
+    )
+    if supplier_id is not None:
+        stmt = stmt.where(PurchaseOrder.supplier_id == supplier_id)
+
+    result = await db.execute(stmt)
+    return [_purchase_order_to_out(po) for po in result.scalars().all()]
+
+
+@router.post("/purchase-orders", response_model=PurchaseOrderOut, status_code=status.HTTP_201_CREATED)
+async def create_purchase_order(
+    body: PurchaseOrderCreate, db: AsyncSession = Depends(get_db)
+) -> PurchaseOrderOut:
+    supplier = await db.get(Supplier, body.supplier_id)
+    if supplier is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Fournisseur introuvable")
+
+    po = PurchaseOrder(
+        supplier_id=body.supplier_id,
+        invoice_number=body.invoice_number,
+        order_date=body.order_date,
+    )
+    db.add(po)
+    await db.flush()  # assigns purchase_order_id for the items below
+
+    for line in body.items:
+        # Row-locked so a delivery entry can't race a sale's stock deduction
+        # (see orders.add_item, which locks the same row when selling).
+        result = await db.execute(
+            select(StockItem).where(StockItem.stock_item_id == line.stock_item_id).with_for_update()
+        )
+        stock_item = result.scalar_one_or_none()
+        if stock_item is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Article de stock introuvable")
+
+        stock_item.quantity_on_hand += line.quantity_received
+        db.add(
+            PurchaseOrderItem(
+                purchase_order_id=po.purchase_order_id,
+                stock_item_id=line.stock_item_id,
+                quantity_received=line.quantity_received,
+            )
+        )
+
+    await db.commit()
+    return _purchase_order_to_out(await _load_purchase_order(po.purchase_order_id, db))

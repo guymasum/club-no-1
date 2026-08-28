@@ -1,6 +1,7 @@
-from datetime import datetime, UTC
+from datetime import date, datetime, UTC
 
 from sqlalchemy import (
+    Date,
     DateTime,
     ForeignKey,
     Numeric,
@@ -118,6 +119,54 @@ class Bill(Base):
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     order: Mapped["Order"] = relationship(back_populates="bill")
+
+
+class Supplier(Base):
+    __tablename__ = "suppliers"
+
+    supplier_id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(32))
+    # Soft-deleted like Waiter, not hard-deleted like Customer: past purchase
+    # orders reference a supplier for accountability and must keep pointing
+    # at a real, correctly-named record.
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    purchase_orders: Mapped[list["PurchaseOrder"]] = relationship(back_populates="supplier")
+
+
+class PurchaseOrder(Base):
+    """One delivery/invoice from a supplier. Its line items add directly to
+    stock_items.quantity_on_hand (in the same "portions" unit used
+    everywhere else in stock) when the order is recorded."""
+
+    __tablename__ = "purchase_orders"
+
+    purchase_order_id: Mapped[int] = mapped_column(primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.supplier_id"), nullable=False)
+    invoice_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    order_date: Mapped[date] = mapped_column(Date, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    supplier: Mapped["Supplier"] = relationship(back_populates="purchase_orders")
+    items: Mapped[list["PurchaseOrderItem"]] = relationship(
+        back_populates="purchase_order", cascade="all, delete-orphan"
+    )
+
+
+class PurchaseOrderItem(Base):
+    __tablename__ = "purchase_order_items"
+
+    purchase_order_item_id: Mapped[int] = mapped_column(primary_key=True)
+    purchase_order_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_orders.purchase_order_id"), nullable=False
+    )
+    stock_item_id: Mapped[int] = mapped_column(ForeignKey("stock_items.stock_item_id"), nullable=False)
+    quantity_received: Mapped[int] = mapped_column(nullable=False)  # in portions, added to quantity_on_hand
+
+    purchase_order: Mapped["PurchaseOrder"] = relationship(back_populates="items")
+    stock_item: Mapped["StockItem"] = relationship()
 
 
 def utcnow() -> datetime:

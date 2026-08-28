@@ -92,6 +92,12 @@ export const api = {
   updateStockItem: (id, data) => request(`/admin/stock-items/${id}`, { method: "PUT", body: data }),
   restockItem: (id, delta) =>
     request(`/admin/stock-items/${id}/restock`, { method: "POST", body: { delta } }),
+  suppliers: () => request("/admin/suppliers"),
+  createSupplier: (data) => request("/admin/suppliers", { method: "POST", body: data }),
+  updateSupplier: (id, data) => request(`/admin/suppliers/${id}`, { method: "PUT", body: data }),
+  purchaseOrders: (supplierId) =>
+    request(`/admin/purchase-orders${supplierId ? `?supplier_id=${supplierId}` : ""}`),
+  createPurchaseOrder: (data) => request("/admin/purchase-orders", { method: "POST", body: data }),
 };
 
 export { ApiError, getToken };

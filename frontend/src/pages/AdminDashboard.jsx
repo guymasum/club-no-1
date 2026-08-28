@@ -655,6 +655,303 @@ function CustomersPanel() {
   );
 }
 
+function SuppliersPanel({ suppliers, reloadSuppliers: load }) {
+  const [form, setForm] = useState({ name: "", phone: "" });
+  const [editing, setEditing] = useState(null);
+  const { busy, error, run } = useAsyncAction();
+
+  const handleCreate = (e) => {
+    e.preventDefault();
+    run(async () => {
+      await api.createSupplier({ name: form.name, phone: form.phone || null });
+      setForm({ name: "", phone: "" });
+      await load();
+    });
+  };
+
+  const startEdit = (s) => setEditing({ id: s.supplier_id, name: s.name, phone: s.phone || "" });
+
+  const saveEdit = () =>
+    run(async () => {
+      await api.updateSupplier(editing.id, { name: editing.name, phone: editing.phone || null });
+      setEditing(null);
+      await load();
+    });
+
+  const toggleActive = (s) =>
+    run(async () => {
+      await api.updateSupplier(s.supplier_id, { active: !s.active });
+      await load();
+    });
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>Fournisseurs</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Téléphone</th>
+            <th colSpan={2}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {suppliers.map((s) =>
+            editing?.id === s.supplier_id ? (
+              <tr key={s.supplier_id}>
+                <td>
+                  <input
+                    value={editing.name}
+                    onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                  />
+                </td>
+                <td colSpan={3}>
+                  <input
+                    placeholder="Téléphone (optionnel)"
+                    value={editing.phone}
+                    onChange={(e) => setEditing({ ...editing, phone: e.target.value })}
+                  />
+                  <div style={{ marginTop: 10 }}>
+                    <button onClick={saveEdit} disabled={busy} style={{ marginRight: 6 }}>
+                      Enregistrer
+                    </button>
+                    <button className="secondary" onClick={() => setEditing(null)} disabled={busy}>
+                      Annuler
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              <tr key={s.supplier_id} style={{ opacity: s.active ? 1 : 0.55 }}>
+                <td>
+                  {s.name}
+                  {!s.active && <span className="tag">inactif</span>}
+                </td>
+                <td>{s.phone || "-"}</td>
+                <td>
+                  <button className="secondary" onClick={() => startEdit(s)} disabled={busy}>
+                    Modifier
+                  </button>
+                </td>
+                <td>
+                  <button
+                    className={s.active ? "danger" : "secondary"}
+                    onClick={() => toggleActive(s)}
+                    disabled={busy}
+                  >
+                    {s.active ? "Désactiver" : "Réactiver"}
+                  </button>
+                </td>
+              </tr>
+            )
+          )}
+        </tbody>
+      </table>
+
+      <h4>Ajouter un fournisseur</h4>
+      <form onSubmit={handleCreate}>
+        <input
+          placeholder="Nom"
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          required
+        />
+        <input
+          placeholder="Téléphone (optionnel)"
+          value={form.phone}
+          onChange={(e) => setForm({ ...form, phone: e.target.value })}
+        />
+        <p className="error">{error}</p>
+        <button type="submit" disabled={busy}>
+          Ajouter le fournisseur
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function PurchaseOrdersPanel({ suppliers, stockItems, reloadStockItems }) {
+  const emptyForm = () => ({
+    supplier_id: "",
+    invoice_number: "",
+    order_date: todayIso(),
+    items: [{ stock_item_id: "", quantity_received: "" }],
+  });
+  const [form, setForm] = useState(emptyForm);
+  const [filterSupplierId, setFilterSupplierId] = useState("");
+  const [orders, setOrders] = useState([]);
+  const { busy, error, run } = useAsyncAction();
+
+  const load = () => api.purchaseOrders(filterSupplierId || undefined).then(setOrders);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterSupplierId]);
+
+  const setItem = (index, patch) =>
+    setForm({
+      ...form,
+      items: form.items.map((it, i) => (i === index ? { ...it, ...patch } : it)),
+    });
+
+  const addItemRow = () =>
+    setForm({ ...form, items: [...form.items, { stock_item_id: "", quantity_received: "" }] });
+
+  const removeItemRow = (index) =>
+    setForm({ ...form, items: form.items.filter((_, i) => i !== index) });
+
+  const handleCreate = (e) => {
+    e.preventDefault();
+    run(async () => {
+      const items = form.items
+        .filter((it) => it.stock_item_id && Number(it.quantity_received) > 0)
+        .map((it) => ({
+          stock_item_id: Number(it.stock_item_id),
+          quantity_received: Number(it.quantity_received),
+        }));
+      if (items.length === 0) {
+        throw new Error("Ajoutez au moins un article avec une quantité");
+      }
+      await api.createPurchaseOrder({
+        supplier_id: Number(form.supplier_id),
+        invoice_number: form.invoice_number,
+        order_date: form.order_date,
+        items,
+      });
+      setForm(emptyForm());
+      await Promise.all([load(), reloadStockItems()]);
+    });
+  };
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>Commandes fournisseurs</h3>
+      <p className="muted">
+        Enregistrer une livraison ajoute directement la quantité reçue (en portions) au stock de chaque
+        article.
+      </p>
+
+      <label className="muted">Filtrer par fournisseur</label>
+      <select value={filterSupplierId} onChange={(e) => setFilterSupplierId(e.target.value)}>
+        <option value="">Tous les fournisseurs</option>
+        {suppliers.map((s) => (
+          <option key={s.supplier_id} value={s.supplier_id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Fournisseur</th>
+            <th>N° de facture</th>
+            <th>Articles reçus</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((po) => (
+            <tr key={po.purchase_order_id}>
+              <td>{po.order_date}</td>
+              <td>{po.supplier_name}</td>
+              <td>{po.invoice_number}</td>
+              <td>
+                {po.items.map((it) => `${it.quantity_received}x ${it.stock_item_name}`).join(", ")}
+              </td>
+            </tr>
+          ))}
+          {orders.length === 0 && (
+            <tr>
+              <td colSpan={4} className="muted">
+                Aucune commande enregistrée.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <h4>Enregistrer une livraison</h4>
+      <form onSubmit={handleCreate}>
+        <select
+          value={form.supplier_id}
+          onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}
+          required
+        >
+          <option value="" disabled>
+            Fournisseur
+          </option>
+          {suppliers
+            .filter((s) => s.active)
+            .map((s) => (
+              <option key={s.supplier_id} value={s.supplier_id}>
+                {s.name}
+              </option>
+            ))}
+        </select>
+        <input
+          placeholder="N° de facture"
+          value={form.invoice_number}
+          onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
+          required
+        />
+        <label className="muted">Date</label>
+        <input
+          type="date"
+          value={form.order_date}
+          onChange={(e) => setForm({ ...form, order_date: e.target.value })}
+          required
+        />
+
+        <label className="muted">Articles reçus</label>
+        {form.items.map((item, index) => (
+          <div key={index} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+            <select
+              value={item.stock_item_id}
+              onChange={(e) => setItem(index, { stock_item_id: e.target.value })}
+              style={{ flex: 2 }}
+            >
+              <option value="" disabled>
+                Article de stock
+              </option>
+              {stockItems.map((s) => (
+                <option key={s.stock_item_id} value={s.stock_item_id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min="1"
+              placeholder="Quantité (portions)"
+              value={item.quantity_received}
+              onChange={(e) => setItem(index, { quantity_received: e.target.value })}
+              style={{ flex: 1, margin: 0 }}
+            />
+            {form.items.length > 1 && (
+              <button type="button" className="secondary" onClick={() => removeItemRow(index)}>
+                Retirer
+              </button>
+            )}
+          </div>
+        ))}
+        <button type="button" className="secondary" onClick={addItemRow} style={{ marginBottom: 14 }}>
+          + Ajouter un article
+        </button>
+
+        <p className="error">{error}</p>
+        <button type="submit" disabled={busy}>
+          Enregistrer la livraison
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   // Shared between StockPanel (which mutates it) and ProductsPanel (which
   // only reads it, to populate the "link this product to a stock item"
@@ -666,6 +963,14 @@ export default function AdminDashboard() {
     reloadStockItems();
   }, []);
 
+  // Same sharing rationale as stockItems above: SuppliersPanel mutates,
+  // PurchaseOrdersPanel only reads it for the supplier picker/filter.
+  const [suppliers, setSuppliers] = useState([]);
+  const reloadSuppliers = () => api.suppliers().then(setSuppliers);
+  useEffect(() => {
+    reloadSuppliers();
+  }, []);
+
   return (
     <>
       <TopBar />
@@ -673,6 +978,12 @@ export default function AdminDashboard() {
         <WaitersPanel />
         <StockPanel stockItems={stockItems} reloadStockItems={reloadStockItems} />
         <ProductsPanel stockItems={stockItems} />
+        <SuppliersPanel suppliers={suppliers} reloadSuppliers={reloadSuppliers} />
+        <PurchaseOrdersPanel
+          suppliers={suppliers}
+          stockItems={stockItems}
+          reloadStockItems={reloadStockItems}
+        />
         <CustomersPanel />
       </div>
     </>
