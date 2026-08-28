@@ -8,6 +8,7 @@ export default function BillView() {
   const { billId } = useParams();
   const [bill, setBill] = useState(null);
   const [error, setError] = useState("");
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     api
@@ -15,6 +16,26 @@ export default function BillView() {
       .then(setBill)
       .catch((err) => setError(err.message));
   }, [billId]);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    setError("");
+    try {
+      const blob = await api.billPdf(bill.bill_id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `facture-${bill.transaction_id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "Le téléchargement du PDF a échoué");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <>
@@ -27,9 +48,9 @@ export default function BillView() {
           {bill && (
             <>
               <button onClick={() => window.print()}>Imprimer</button>
-              <a href={api.billPdfUrl(bill.bill_id)} target="_blank" rel="noreferrer">
-                <button className="secondary">Télécharger le PDF</button>
-              </a>
+              <button className="secondary" onClick={handleDownload} disabled={downloading}>
+                {downloading ? "Téléchargement..." : "Télécharger le PDF"}
+              </button>
             </>
           )}
         </div>

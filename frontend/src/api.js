@@ -55,7 +55,26 @@ export const api = {
     request(`/orders/${orderId}/items/${itemId}`, { method: "DELETE" }),
   finalizeOrder: (orderId) => request(`/orders/${orderId}/bill`, { method: "POST" }),
   bill: (billId) => request(`/bills/${billId}`),
-  billPdfUrl: (billId) => `${API_URL}/bills/${billId}/pdf`,
+  // The PDF route needs the same Bearer token as everything else, so it
+  // can't be a plain <a href>: a browser navigation never attaches the
+  // Authorization header. Fetch it as a blob instead.
+  billPdf: async (billId) => {
+    const token = getToken();
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${API_URL}/bills/${billId}/pdf`, { headers });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const data = await res.json();
+        detail = data.detail || detail;
+      } catch {
+        // response had no JSON body
+      }
+      throw new ApiError(detail, res.status);
+    }
+    return res.blob();
+  },
 
   // admin
   waiters: () => request("/admin/waiters"),
