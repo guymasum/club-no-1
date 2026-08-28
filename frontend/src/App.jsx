@@ -4,6 +4,7 @@ import Login from "./pages/Login.jsx";
 import WaiterDashboard from "./pages/WaiterDashboard.jsx";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 import BillView from "./pages/BillView.jsx";
+import BillsList from "./pages/BillsList.jsx";
 import MyAccount from "./pages/MyAccount.jsx";
 
 function RequireAuth({ children, adminOnly = false }) {
@@ -30,6 +31,14 @@ export default function App() {
         element={
           <RequireAuth adminOnly>
             <AdminDashboard />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/factures"
+        element={
+          <RequireAuth>
+            <BillsList />
           </RequireAuth>
         }
       />

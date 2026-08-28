@@ -54,6 +54,7 @@ export const api = {
   removeItem: (orderId, itemId) =>
     request(`/orders/${orderId}/items/${itemId}`, { method: "DELETE" }),
   finalizeOrder: (orderId) => request(`/orders/${orderId}/bill`, { method: "POST" }),
+  bills: () => request("/bills"),
   bill: (billId) => request(`/bills/${billId}`),
   // The PDF route needs the same Bearer token as everything else, so it
   // can't be a plain <a href>: a browser navigation never attaches the

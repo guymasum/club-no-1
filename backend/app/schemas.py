@@ -168,6 +168,20 @@ class OrderItemCreate(BaseModel):
 
 # ---- Bills ----
 
+class BillSummaryOut(BaseModel):
+    """Row shape for the finalized-bills list — no line items, so listing
+    hundreds of bills doesn't drag in every order's products."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    bill_id: int
+    transaction_id: str
+    total: float
+    generated_at: datetime
+    waiter_name: str
+    customer_name: str | None
+
+
 class BillOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

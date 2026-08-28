@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.deps import get_current_waiter
 from app.models import Bill, Order, OrderItem
-from app.schemas import BillOut, OrderItemOut
+from app.schemas import BillOut, BillSummaryOut, OrderItemOut
 
 router = APIRouter(tags=["bills"], dependencies=[Depends(get_current_waiter)])
 
@@ -83,6 +83,30 @@ async def finalize_order(order_id: int, db: AsyncSession = Depends(get_db)) -> B
     await db.refresh(bill)
 
     return _bill_to_out(bill, order)
+
+
+@router.get("/bills", response_model=list[BillSummaryOut])
+async def list_bills(db: AsyncSession = Depends(get_db)) -> list[BillSummaryOut]:
+    result = await db.execute(
+        select(Bill)
+        .options(
+            selectinload(Bill.order).selectinload(Order.waiter),
+            selectinload(Bill.order).selectinload(Order.customer),
+        )
+        .order_by(Bill.generated_at.desc())
+    )
+    bills = result.scalars().all()
+    return [
+        BillSummaryOut(
+            bill_id=bill.bill_id,
+            transaction_id=bill.transaction_id,
+            total=float(bill.total),
+            generated_at=bill.generated_at,
+            waiter_name=bill.order.waiter.name,
+            customer_name=bill.order.customer.name if bill.order.customer else None,
+        )
+        for bill in bills
+    ]
 
 
 @router.get("/bills/{bill_id}", response_model=BillOut)

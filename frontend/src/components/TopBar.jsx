@@ -18,6 +18,7 @@ export default function TopBar() {
         <NavLink to="/" end>
           Commandes
         </NavLink>
+        <NavLink to="/factures">Factures</NavLink>
         {user?.role === "admin" && <NavLink to="/admin">Administration</NavLink>}
         <NavLink to="/mon-compte">Mon compte</NavLink>
         <button className="linklike" onClick={handleLogout}>
