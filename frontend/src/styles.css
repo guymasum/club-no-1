@@ -30,6 +30,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   padding: 14px 20px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
@@ -40,6 +42,20 @@ body {
   margin: 0;
   letter-spacing: 0.03em;
   color: var(--accent);
+}
+
+.topbar nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 6px;
+  /* If items still can't all fit on one row, scroll instead of breaking
+     a single link's text across lines. */
+  overflow-x: auto;
+}
+
+.topbar nav a, .topbar nav span, .topbar button.linklike {
+  white-space: nowrap;
 }
 
 .topbar nav a, .topbar button.linklike {
@@ -186,7 +202,11 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   margin-top: 8px;
 }
 
-table { width: 100%; border-collapse: collapse; }
+/* Admin tables (Serveurs, Produits, Stock) sit in a .card; on narrow
+   screens let the card scroll horizontally rather than squeezing every
+   column (and the action buttons) illegibly narrow. */
+.card:has(table) { overflow-x: auto; }
+table { width: 100%; min-width: 560px; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
 th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
 
