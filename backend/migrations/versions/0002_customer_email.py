@@ -8,15 +8,21 @@ placeholders are the operator's own contact details, used deliberately as
 a temporary default — swap them (or drop the backfill UPDATE entirely) if
 that's no longer the intent by the time this runs against real customers.
 
-Revision ID: 0002_customer_contact_and_bill_email_status
+Revision ID: 0002_customer_email
 Revises: 0001_baseline
 Create Date: 2026-10-13
 
 """
+# Revision ids must stay <= 32 chars: alembic_version.version_num is a
+# VARCHAR(32) by default, and Alembic doesn't widen it for you — a longer
+# id fails on upgrade with "value too long for type character varying(32)"
+# (discovered the hard way against production: Postgres DDL is
+# transactional, so it rolled back cleanly rather than leaving a partial
+# schema, but it's still worth avoiding).
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0002_customer_contact_and_bill_email_status"
+revision = "0002_customer_email"
 down_revision = "0001_baseline"
 branch_labels = None
 depends_on = None
