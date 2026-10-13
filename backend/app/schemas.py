@@ -1,6 +1,8 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+from app.contact_utils import InvalidPhoneNumber, normalize_phone
 
 
 # ---- Auth ----
@@ -56,13 +58,35 @@ class CustomerOut(BaseModel):
 
     customer_id: int
     name: str
+    email: str | None
+    phone: str | None
 
 
-class CustomerCreate(BaseModel):
+class _CustomerContactFields(BaseModel):
+    """Shared email/phone validation for create and update — phone is
+    normalized to E.164 here so every caller (including admin.py) gets a
+    consistently-formatted number without having to remember to call
+    normalize_phone() itself."""
+
+    email: EmailStr | None = None
+    phone: str | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def _normalize_phone(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        try:
+            return normalize_phone(value)
+        except InvalidPhoneNumber as exc:
+            raise ValueError(str(exc)) from exc
+
+
+class CustomerCreate(_CustomerContactFields):
     name: str
 
 
-class CustomerUpdate(BaseModel):
+class CustomerUpdate(_CustomerContactFields):
     name: str
 
 
@@ -192,7 +216,14 @@ class BillOut(BaseModel):
     generated_at: datetime
     waiter_name: str
     customer_name: str | None
+    customer_email: str | None
+    email_status: str
+    email_error: str | None
     items: list[OrderItemOut] = []
+
+
+class SendBillEmailOut(BaseModel):
+    email_status: str
 
 
 # ---- Suppliers & purchase orders ----

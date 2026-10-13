@@ -243,7 +243,7 @@ async def restock_item(stock_item_id: int, body: StockAdjustment, db: AsyncSessi
 
 @router.post("/customers", response_model=CustomerOut, status_code=status.HTTP_201_CREATED)
 async def create_customer(body: CustomerCreate, db: AsyncSession = Depends(get_db)) -> Customer:
-    customer = Customer(name=body.name)
+    customer = Customer(name=body.name, email=body.email, phone=body.phone)
     db.add(customer)
     await db.commit()
     await db.refresh(customer)
@@ -259,6 +259,8 @@ async def update_customer(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Client introuvable")
 
     customer.name = body.name
+    customer.email = body.email
+    customer.phone = body.phone
     await db.commit()
     await db.refresh(customer)
     return customer

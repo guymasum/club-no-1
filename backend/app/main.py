@@ -1,19 +1,14 @@
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import init_models
 from app.routers import admin, auth, bills, catalog, orders
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await init_models()
-    yield
-
-
-app = FastAPI(title="Club No. 1 API", lifespan=lifespan)
+# Schema is now owned by Alembic migrations (see migrations/), not
+# create_all() on startup — the Docker image runs `alembic upgrade head`
+# before uvicorn starts (see Dockerfile). Local dev without Docker: run
+# `alembic upgrade head` once against your DATABASE_URL before starting
+# the app, and again after pulling any migration that adds one.
+app = FastAPI(title="Club No. 1 API")
 
 app.add_middleware(
     CORSMiddleware,

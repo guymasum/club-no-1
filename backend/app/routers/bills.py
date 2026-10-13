@@ -1,7 +1,9 @@
+import asyncio
 import io
+import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from reportlab.lib.pagesizes import mm
 from reportlab.pdfgen import canvas
@@ -9,12 +11,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app import database
 from app.database import get_db
 from app.deps import get_current_waiter
+from app.email_utils import EmailSendError, send_email
 from app.models import Bill, Order, OrderItem
-from app.schemas import BillOut, BillSummaryOut, OrderItemOut
+from app.schemas import BillOut, BillSummaryOut, OrderItemOut, SendBillEmailOut
 
 router = APIRouter(tags=["bills"], dependencies=[Depends(get_current_waiter)])
+
+logger = logging.getLogger(__name__)
 
 RECEIPT_WIDTH = 80 * mm
 
@@ -51,6 +57,9 @@ def _bill_to_out(bill: Bill, order: Order) -> BillOut:
         generated_at=bill.generated_at,
         waiter_name=order.waiter.name,
         customer_name=order.customer.name if order.customer else None,
+        customer_email=order.customer.email if order.customer else None,
+        email_status=bill.email_status,
+        email_error=bill.email_error,
         items=[
             OrderItemOut(
                 item_id=item.item_id,
@@ -118,13 +127,9 @@ async def get_bill(bill_id: int, db: AsyncSession = Depends(get_db)) -> BillOut:
     return _bill_to_out(bill, order)
 
 
-@router.get("/bills/{bill_id}/pdf")
-async def get_bill_pdf(bill_id: int, db: AsyncSession = Depends(get_db)) -> StreamingResponse:
-    bill = await db.get(Bill, bill_id)
-    if bill is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Facture introuvable")
-    order = await _load_order_for_bill(bill.order_id, db)
-
+def _render_bill_pdf(bill: Bill, order: Order) -> bytes:
+    """Shared by the download route and the email background task, so the
+    emailed receipt is byte-for-byte the same PDF a waiter could download."""
     buffer = io.BytesIO()
     height = (120 + 6 * len(order.items)) * mm
     pdf = canvas.Canvas(buffer, pagesize=(RECEIPT_WIDTH, height))
@@ -161,8 +166,103 @@ async def get_bill_pdf(bill_id: int, db: AsyncSession = Depends(get_db)) -> Stre
 
     pdf.save()
     buffer.seek(0)
+    return buffer.read()
+
+
+@router.get("/bills/{bill_id}/pdf")
+async def get_bill_pdf(bill_id: int, db: AsyncSession = Depends(get_db)) -> StreamingResponse:
+    bill = await db.get(Bill, bill_id)
+    if bill is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Facture introuvable")
+    order = await _load_order_for_bill(bill.order_id, db)
+
+    pdf_bytes = _render_bill_pdf(bill, order)
     return StreamingResponse(
-        buffer,
+        io.BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={bill.transaction_id}.pdf"},
     )
+
+
+async def send_receipt_email_task(bill_id: int) -> None:
+    """Runs as a FastAPI BackgroundTask, i.e. *after* the HTTP response for
+    POST /bills/{id}/send-email has already been returned. Two things that
+    matter here and don't apply to a normal request handler:
+
+    1. The request's AsyncSession is already closed by the time this runs,
+       so it opens its own fresh session rather than reusing one from
+       Depends(get_db).
+    2. Nothing awaits this task's result, so if send_email() raises and we
+       didn't catch it, the exception would just vanish into asyncio's
+       default handler (logged, if you're watching, and nobody — staff or
+       customer — would ever know the email failed). The try/except below
+       is what turns that silent failure into a visible email_status.
+
+    Accessed as `database.AsyncSessionLocal()` (module attribute, looked up
+    at call time) rather than imported directly — tests monkeypatch that
+    attribute to point at the in-memory test engine, same as the dependency
+    override they already do for get_db. `from app.database import
+    AsyncSessionLocal` would copy the reference at import time and silently
+    keep using the real Postgres engine no matter what the test overrides.
+    """
+    async with database.AsyncSessionLocal() as db:
+        bill = await db.get(Bill, bill_id)
+        if bill is None:
+            return
+        order = await _load_order_for_bill(bill.order_id, db)
+
+        if order.customer is None or not order.customer.email:
+            bill.email_status = "failed"
+            bill.email_error = "Ce client n'a pas d'adresse e-mail enregistrée"
+            await db.commit()
+            return
+
+        pdf_bytes = _render_bill_pdf(bill, order)
+
+        try:
+            # send_email() is blocking SMTP I/O — run it off the event loop
+            # so it can't stall every other request in flight.
+            await asyncio.to_thread(
+                send_email,
+                to=order.customer.email,
+                subject=f"Votre reçu Club No. 1 — {bill.transaction_id}",
+                body=(
+                    f"Bonjour {order.customer.name},\n\n"
+                    f"Veuillez trouver ci-joint votre reçu {bill.transaction_id} "
+                    f"d'un montant de {format_bif(float(bill.total))}.\n\n"
+                    "Merci et à bientôt !\nClub No. 1"
+                ),
+                attachment=pdf_bytes,
+                attachment_filename=f"{bill.transaction_id}.pdf",
+            )
+        except EmailSendError as exc:
+            logger.warning("Receipt email failed for bill %s: %s", bill_id, exc)
+            bill.email_status = "failed"
+            bill.email_error = str(exc)[:500]
+        else:
+            bill.email_status = "sent"
+            bill.email_error = None
+            bill.email_sent_at = datetime.now(UTC)
+        await db.commit()
+
+
+@router.post("/bills/{bill_id}/send-email", response_model=SendBillEmailOut, status_code=status.HTTP_202_ACCEPTED)
+async def send_bill_email(
+    bill_id: int, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)
+) -> SendBillEmailOut:
+    """On-demand only — nothing sends automatically when a bill is
+    finalized. A waiter/admin clicks "send" in the UI, which calls this."""
+    bill = await db.get(Bill, bill_id)
+    if bill is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Facture introuvable")
+    order = await _load_order_for_bill(bill.order_id, db)
+
+    if order.customer is None or not order.customer.email:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ce client n'a pas d'adresse e-mail enregistrée")
+
+    bill.email_status = "pending"
+    bill.email_error = None
+    await db.commit()
+
+    background_tasks.add_task(send_receipt_email_task, bill.bill_id)
+    return SendBillEmailOut(email_status="pending")

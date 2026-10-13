@@ -13,6 +13,17 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 480  # 8 hours, one shift
 
+    # SMTP for receipt emails (POST /bills/{id}/send-email). Blank smtp_host
+    # means email sending is disabled — the endpoint returns a clear 500
+    # instead of a confusing connection error. Provider is Gmail
+    # (smtp.gmail.com) — see .env.example for the App Password requirement.
+    # No vendor lock-in: swapping providers later is just an env var change.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "Club No. 1 <no-reply@clubno1.bi>"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("database_url", mode="before")

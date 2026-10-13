@@ -34,6 +34,12 @@ class Customer(Base):
 
     customer_id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    # Both optional: a walk-in customer may be recorded by name only. When
+    # present, phone is normalized to E.164 (e.g. +25779...) before storage —
+    # see app.contact_utils.normalize_phone — so it's ready for SMS/WhatsApp
+    # providers (Twilio etc.) without a second cleanup pass later.
+    email: Mapped[str | None] = mapped_column(String(255))
+    phone: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     orders: Mapped[list["Order"]] = relationship(back_populates="customer")
@@ -117,6 +123,15 @@ class Bill(Base):
     transaction_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     total: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # Tracks one specific receipt-email send attempt (not a customer-level
+    # flag: the same bill could be re-sent after a failure). 'none' = never
+    # requested, 'pending' = BackgroundTask queued but not finished yet,
+    # 'sent' / 'failed'. email_error holds the exception text for 'failed'
+    # so staff can see why without digging through server logs.
+    email_status: Mapped[str] = mapped_column(String(16), nullable=False, default="none")
+    email_error: Mapped[str | None] = mapped_column(Text)
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     order: Mapped["Order"] = relationship(back_populates="bill")
 

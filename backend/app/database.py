@@ -21,10 +21,3 @@ AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         yield session
-
-
-async def init_models() -> None:
-    """Create tables if they don't exist yet. Fine for this app's scale;
-    revisit with Alembic migrations if the schema needs to evolve in prod."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)

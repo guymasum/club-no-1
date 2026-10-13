@@ -5,6 +5,7 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from app import database
 from app.database import Base, get_db
 from app.main import app
 from app.models import Product, Waiter
@@ -14,9 +15,16 @@ TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
 
 @pytest_asyncio.fixture
-async def db_session():
+async def db_session(monkeypatch):
     engine = create_async_engine(TEST_DB_URL, connect_args={"check_same_thread": False}, poolclass=StaticPool)
     session_maker = async_sessionmaker(engine, expire_on_commit=False)
+
+    # The receipt-email BackgroundTask (app/routers/bills.py) opens its own
+    # session directly from app.database rather than through Depends(get_db)
+    # — see that module's comment for why. Point it at this same in-memory
+    # engine so it reads/writes the test's data instead of trying to reach
+    # the real DATABASE_URL.
+    monkeypatch.setattr(database, "AsyncSessionLocal", session_maker)
 
     # SQLite ignores foreign keys (including ON DELETE actions) unless told
     # otherwise, so the customer-delete -> orders.customer_id=NULL behavior
